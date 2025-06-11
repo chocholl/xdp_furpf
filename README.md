@@ -5,17 +5,9 @@
 Pretty fast XDP-based URPF implementation that leverages hierarchical data structures to perform high-speed packet filtering.
 Two lookups are in use; the first one, keyed with the source MAC address, brings a pointer to the LPM table containing prefix-list entries to perform a second, source IP-based lookup.
 
-Along with URPF, it supports ARP/NDP spoofing prevention.
+Along with URPF, it supports ARP/NDP spoofing prevention and policing legitimate traffic with a single-rate bandwidth policer.
 
 Cloud service providers might find it useful to enforce security policies by restricting virtual machines from spoofing source addresses with no computational overhead.
-
-## Compile and Attach to NIC
-
-```
-cd repo_dir
-make
-bash ./attach
-```
 
 ## Filtering principles
 
@@ -35,6 +27,14 @@ It uses two tables to enforce source verification.
 
 * Drop ARP if Sender IP doesn't match IPv4 prefix-list
 
+
+## Compile and Attach to NIC
+
+```
+cd repo_dir
+make
+bash ./attach
+```
 
 ## Binding to NIC/vNIC/TAP
 ```
@@ -61,9 +61,9 @@ cat 2d-8d-16-ca.acl.v6
 Having prefix-list prepared just run CLI script which updates in-kernel data-structures.
 In order to add entries run the following command
 ```
-python3 update_map.py --mac f0-1c-2d-8d-16-ca --command add --file ./2d-8d-16-ca.acl --interface_index 3
+python3 update_map.py --mac f0-1c-2d-8d-16-ca --command add --file ./2d-8d-16-ca.acl --interface_index 3 --cir 150
 
-python3 update_map_v6.py --mac d4-04-ff-26-37-ca --file ./ff-26-37-ca.acl.v6 --command add --interface_index 3
+python3 update_map_v6.py --mac d4-04-ff-26-37-ca --file ./ff-26-37-ca.acl.v6 --command add --interface_index 3 --cir 100
 ```
 
 In order to delete entries run the following command
