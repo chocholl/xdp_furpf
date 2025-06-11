@@ -20,6 +20,8 @@
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 #endif
 
+#define FRAME_SIZE    1000000000
+
 #define        ARPOP_REQUEST        1                /* ARP request.  */
 #define        ARPOP_REPLY        2                /* ARP reply.  */
 #define        ARPOP_RREQUEST        3                /* RARP request.  */
@@ -40,6 +42,26 @@ struct arphdr {
         unsigned char           ar_tip[4];                      /* target IP address            */
 };
 
+typedef struct bucket {
+    __u64 start_time;
+    __u64 n_packets;
+} t_bucket;
+
+struct  {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, __u32);
+    __type(value, __u32);
+    __uint(max_entries, 100);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} cir SEC(".maps");
+
+struct  {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, __u32);
+    __type(value, t_bucket);
+    __uint(max_entries, 100);
+    __uint(pinning, LIBBPF_PIN_BY_NAME);
+} state_map SEC(".maps");
 
 struct ipv4_lpm_key {
         __u32 prefixlen;
@@ -88,6 +110,48 @@ struct {
     .values = {(void*)&ipv6_lpm_map},
 };
 
+static __always_inline __u32 rate_limit(__u32 key, __u32 frame_len) {
+    __u32 thr;
+    __u32 *thr_value;
+
+    thr_value = bpf_map_lookup_elem(&cir, &key);
+
+    if (!thr_value) {
+        return XDP_PASS;
+    } else {
+        thr = *thr_value;
+    }
+
+    if (thr == 0) {
+        return XDP_PASS;
+    }
+
+    t_bucket *b = bpf_map_lookup_elem(&state_map, &key);
+    __u64 now = bpf_ktime_get_ns();
+    if (b)
+    {
+        __u64 elapsed = now - b->start_time;
+        if (elapsed >= FRAME_SIZE)
+        {
+            b->start_time = now;
+            b->n_packets = 0;
+        }
+        if (b->n_packets > thr)
+        {
+            return XDP_DROP;
+        }
+        b->n_packets = b->n_packets + frame_len;
+    }
+    else
+    {
+        struct bucket new_bucket;
+        new_bucket.start_time = now;
+        new_bucket.n_packets = 1;
+        bpf_map_update_elem(&state_map, &key, &new_bucket, BPF_ANY);
+    }
+
+    return XDP_PASS;
+}
 
 SEC("xdp")
 int xdp_fw_kern_multi_map(struct xdp_md *ctx)
@@ -137,13 +201,13 @@ int xdp_fw_kern_multi_map(struct xdp_md *ctx)
                     __u8 i_index = (__u8)ctx->ingress_ifindex;
                     if (value) {
                         if (*value == i_index) {
-                            ret = XDP_PASS;
+                            ret = rate_limit(outer_key, frame_len);
                             break;
                         }
                     }
                 }
                 else {
-                    ret = XDP_PASS;
+                    ret = rate_limit(outer_key, frame_len);
                     break;
                 }
             }
@@ -166,7 +230,7 @@ int xdp_fw_kern_multi_map(struct xdp_md *ctx)
                 __u8 i_index = (__u8)ctx->ingress_ifindex;
                 if (value) {
                     if (*value == i_index) {
-                        ret = XDP_PASS;
+                        ret = rate_limit(outer_key, frame_len);
                         break;
                     }
                 }
@@ -206,7 +270,7 @@ int xdp_fw_kern_multi_map(struct xdp_md *ctx)
                                 key6.prefixlen = 128;
                                 memcpy(&key6.data, tgt_address, 16);
                                 if (bpf_map_lookup_elem(lpm_map, &key6)) {
-                                    ret = XDP_PASS;
+                                    ret = rate_limit(outer_key_v6, frame_len);
                                     break;
                                 }
                                 else {
@@ -215,12 +279,12 @@ int xdp_fw_kern_multi_map(struct xdp_md *ctx)
                                 }
                             }
                             else {
-                                ret = XDP_PASS;
+                                ret = rate_limit(outer_key_v6, frame_len);
                                 break;
                             }
                         }
                         else {
-                            ret = XDP_PASS;
+                            ret = rate_limit(outer_key_v6, frame_len);
                             break;
                         }
                     }
