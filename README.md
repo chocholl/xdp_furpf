@@ -5,7 +5,7 @@
 Pretty fast XDP-based URPF implementation that leverages hierarchical data structures to perform high-speed packet filtering.
 Two lookups are in use; the first one, keyed with the source MAC address, brings a pointer to the LPM table containing prefix-list entries to perform a second, source IP-based lookup.
 
-Along with URPF, it supports ARP/NDP spoofing prevention and policing legitimate traffic with a single-rate bandwidth policer.
+Along with URPF, it supports ARP/NDP spoofing prevention and policing legitimate traffic with the TCP friendly single-rate policer.
 
 Cloud service providers might find it useful to enforce security policies by restricting virtual machines from spoofing source addresses with no computational overhead.
 
