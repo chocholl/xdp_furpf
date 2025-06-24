@@ -31,15 +31,15 @@
 #define        ARPOP_NAK        10                /* (ATM)ARP NAK.  */
 
 struct arphdr {
-        __be16          ar_hrd;         /* format of hardware address   */
-        __be16          ar_pro;         /* format of protocol address   */
-        unsigned char   ar_hln;         /* length of hardware address   */
-        unsigned char   ar_pln;         /* length of protocol address   */
-        __be16          ar_op;          /* ARP opcode (command)         */
-        unsigned char           ar_sha[ETH_ALEN];       /* sender hardware address      */
-        unsigned char           ar_sip[4];                      /* sender IP address            */
-        unsigned char           ar_tha[ETH_ALEN];       /* target hardware address      */
-        unsigned char           ar_tip[4];                      /* target IP address            */
+    __be16  ar_hrd;             /* format of hardware address   */
+    __be16  ar_pro;             /* format of protocol address   */
+    unsigned char   ar_hln;             /* length of hardware address   */
+    unsigned char   ar_pln;             /* length of protocol address   */
+    __be16  ar_op;              /* ARP opcode (command)         */
+    unsigned char   ar_sha[ETH_ALEN];   /* sender hardware address      */
+    unsigned char   ar_sip[4];                  /* sender IP address            */
+    unsigned char   ar_tha[ETH_ALEN];   /* target hardware address      */
+    unsigned char   ar_tip[4];                  /* target IP address            */
 };
 
 typedef struct bucket {
@@ -130,13 +130,14 @@ static __always_inline __u32 rate_limit(__u32 *key, __u32 frame_len) {
 
     t_bucket *b = bpf_map_lookup_elem(&state_map, key);
     __u64 now = bpf_ktime_get_ns();
-    if (b)
-    {
+
+    if (b) {
         __u64 elapsed = now - b->start_time;
+
         if (elapsed >= FRAME_SIZE) {
             b->start_time = now;
             b->last_packet_time = now;
-            b->headroom = thr - frame_len;
+            b->headroom = thr/2 - frame_len;
             b->transmitted = frame_len;
             return XDP_PASS;
         }
@@ -151,10 +152,11 @@ static __always_inline __u32 rate_limit(__u32 *key, __u32 frame_len) {
         }
 
         if (b->headroom > frame_len) {
-            int rnd = now % 100;
+            int rnd = bpf_get_prandom_u32() % 100;
             __u64 percent = (100 * thr) / (b->transmitted + 1);
 
             if (rnd > percent) {
+                b->transmitted = b->transmitted / 2;
                 return XDP_DROP;
             }
             else {
@@ -164,6 +166,7 @@ static __always_inline __u32 rate_limit(__u32 *key, __u32 frame_len) {
             }
         }
         else {
+            b->transmitted = b->transmitted / 2;
             return XDP_DROP;
         }
     }
@@ -171,7 +174,7 @@ static __always_inline __u32 rate_limit(__u32 *key, __u32 frame_len) {
         struct bucket new_bucket;
         new_bucket.start_time = now;
         new_bucket.last_packet_time = now;
-        new_bucket.headroom = thr;
+        new_bucket.headroom = thr/2;
         new_bucket.transmitted = 0;
         bpf_map_update_elem(&state_map, key, &new_bucket, BPF_ANY);
         return XDP_PASS;
